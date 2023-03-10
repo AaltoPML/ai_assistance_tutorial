@@ -258,33 +258,42 @@ class UserModel:
         alt_modes = [i for i, val in enumerate(bin_modes) if val=='1']
         for mode_num in alt_modes:
             new_mode = (start,mid_pt,mode_num)
-            alt_dict[new_mode] = self._calc_segment_cost(new_mode)
-        
+            if new_mode != path[costly_ind]:
+                alt_dict[new_mode] = self._calc_segment_cost(new_mode)
+                    
         if path[costly_ind] != path[-1]:
             # find alternative transfer routes
-            _, end, mode = path[costly_ind+1]
+            _, end, _ = path[costly_ind+1]
             ## skip
             bin_direct = self.world_setup['edges'][start, end]
             alt_direct = [i for i, val in enumerate(bin_direct) if val=='1']
             for mode_num in alt_direct:
                 new_direct = (start,end,mode_num)
-                alt_dict[new_direct] = self._calc_segment_cost(new_direct)
+                if new_direct != path[costly_ind]:
+                    alt_dict[new_direct] = self._calc_segment_cost(new_direct)
 
             ## change transfer
             alt_transfer1 = self.world_setup['edges'][start, :]
+            txn_dict = dict()
             for mid_pt, bin_transfer1 in enumerate(alt_transfer1):
-                txn_dict = dict()
                 alt_tnx1 = [i for i, v in enumerate(bin_transfer1) if v=='1']
+                if len(alt_tnx1)==0:
+                    continue
                 for mode_num in alt_tnx1:
                     txn1 = (start,mid_pt,mode_num)
-                    txn_dict[txn1] = self._calc_segment_cost(txn1)
-                bin_tnx2 = self.world_setup['edges'][mid_pt, end]
+                    if (txn1 == path[costly_ind]) or (txn1 in alt_dict.keys()):
+                        continue
+                    else:
+                        txn_dict[txn1] = self._calc_segment_cost(txn1)
+
+            for txn1,cost1 in txn_dict.items():
+                _,txn_loc,_ = txn1
+                bin_tnx2 = self.world_setup['edges'][txn_loc, end]
                 alt_tnx2 = [i for i, v in enumerate(bin_tnx2) if v=='1']
                 for mode_num in alt_tnx2:
                     txn2 = (mid_pt,end,mode_num)
                     cost2 = self._calc_segment_cost(txn2)
-                    for txn1,cost1 in txn_dict.items():
-                        alt_dict[(txn1,txn2)] = cost1 + cost2
+                    alt_dict[(txn1,txn2)] = cost1 + cost2
 
         # Build list of alternatives/counter proposals + their costs
         ai_advice, advice_costs = self.observations[-1]
@@ -296,10 +305,16 @@ class UserModel:
                 new_path[costly_ind] = journey
                 new_costs[costly_ind] = cost
                 
-            elif len(journey)==2:
+                _,new_e,_ = journey
+                _,old_e,_ = new_path[costly_ind+1]
+                if new_e == old_e:
+                    del new_path[costly_ind+1]
+                    del new_costs[costly_ind+1]
+                        
+            if len(journey)==2:
                 part1, part2 = journey
-                new_path[most_costly] = part1
-                new_path.insert(most_costly+1,part2)
+                new_path[costly_ind] = part1
+                new_path[costly_ind+1] = part2
                 new_costs[costly_ind] = cost
             all_paths.append(new_path)
             cost_vec.append(np.sum(new_costs))
