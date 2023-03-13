@@ -333,6 +333,10 @@ class UserModel:
             ai_advice = [r.get_itinerary() for r in state.path_ai]
             advice_costs = [self._calc_segment_cost(segment) for segment in ai_advice]
             self.observations.append((ai_advice,advice_costs))
+          
+        # Making this call explicit for tutorial excercise
+#         if self.role == 'sim':
+#             self.update(state)
             
     def sample(self):
         assert self.role=='sim', "Method only available to simulated users; method called on true user."
@@ -341,9 +345,6 @@ class UserModel:
     def update(self, obs,**kwargs):
         assert self.role=='sim', "Method only available to simulated users; method called on true user."
         
-        if self.inf_fn is not None:
-            return self.inf_fn(obs,**kwargs)
-        
 #         if obs.path_ai != obs.path_user:
         if not task_state.is_solved():
             # step 1: check what user changed
@@ -351,39 +352,71 @@ class UserModel:
             changes = [s for s in obs.path_user if s.get_itinerary() not in ai_advice]
             for c in changes:
                 cost_vec = c.get_costs()
+                self.param_dist = self.inference_engine(cost_vec)
 
                 # step 2: Use Laplace Approx for posterior
                 # Debug idea: change init value every time
-                init_mean = self.param_dist.mean
-                optim = minimize(self._log_posterior, init_mean,
-                                 args=(cost_vec,"L1"), method='BFGS')
-                if not optim.success:
-                    print("Failed to minimize")
-                w_map = optim.x/np.sum(optim.x)
-                hessian = np.linalg.inv(optim.hess_inv)
+#                 init_mean = self.param_dist.mean
+#                 optim = minimize(self._log_posterior, init_mean,
+#                                  args=(cost_vec,"L1"), method='BFGS')
+#                 if not optim.success:
+#                     print("Failed to minimize")
+#                 w_map = optim.x/np.sum(optim.x)
+#                 hessian = np.linalg.inv(optim.hess_inv)
 
 #                 print(w_map,np.any(hessian<0))
 #                 print(hessian)
-                self.param_dist = multivariate_normal(mean=w_map,
-                                                      cov=hessian)
+#                 self.param_dist = multivariate_normal(mean=w_map,
+#                                                       cov=hessian)
+                  
+    def inference_engine(self,e):
+        if self.inference is not None:
+            approx_dist = self.inference(e)
+        else:
+            # step 2: Use Laplace Approx for posterior
+            # Debug idea: change init value every time
+            init_mean = self.param_dist.mean
+            optim = minimize(self._log_posterior, init_mean,
+                             args=(e,), method='BFGS')
+            if not optim.success:
+                print("Failed to minimize")
+            w_map = optim.x/np.sum(optim.x)
+            hessian = np.linalg.inv(optim.hess_inv) 
             
-    def _log_posterior(self,w,a,regularizer=None):
+            # Due to the nature of the exp function, the optimizer sometimes 
+            # finds a saddle point. To use the Hessian as a covariance
+            # matrix, it needs to be positive definite, so the absolute
+            # value is taken.
+            approx_dict = multivariate_normal(mean=w_map, #
+                                              cov=np.abs(hessian))
+        
+        return approx_dist
+
+        
+    
+    def _log_posterior(self,w,e,regularizer=None):
+        if self.posterior_fn is not None:
+            post_pr = self.posterior_fn(w,e)
+        else:
+            
 #         w_mu = self.param_dist.mean
 #         w_cov = self.param_dist.cov
 #         log_prior = (w - w_mu).dot(np.linalg.inv(w_cov)).dot(w - w_mu)
 #         if not np.isclose(np.sum(w),1):
 #             w = w/np.sum(w)
-        log_prior = self.param_dist.logpdf(w)
-        log_likelihood = w.dot(a) 
+            log_prior = self.param_dist.logpdf(w)
+            log_likelihood = w.dot(e) 
+            post_pr =  log_prior + log_likelihood
         
         if regularizer == "L1":
             l1_reg = np.sum(np.abs(w))
-            return -1*(log_prior + log_likelihood + np.log(l1_reg))
+            return -1*(post_pr + np.log(l1_reg))
 #         elif regularizer == "L2":    # Optimization yields invalid Hessian for covar matrix
 #             l2_reg = np.sum(np.square(w))
 #             return -1*(log_prior + log_likelihood + l2_reg)
+        
             
-        return -1*(log_prior + log_likelihood)
+        return -1 * post_pr
     
 
 class crUser(UserModel):
