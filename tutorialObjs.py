@@ -3,7 +3,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from scipy.stats import bernoulli, multivariate_normal
 from scipy.optimize import minimize
-import copy
+import copy, time
 
 # Utils
 def dec2bin(n, n_digs=None):
@@ -65,7 +65,7 @@ class World:
         if modes_price is None:
             modes_price = [(2*i+1, 1) for i in range(n_modes)]
         if modes_time is None:
-            modes_time = [(10*(n_modes-i), 5) for i in range(n_modes)]
+            modes_time = [(5*(n_modes-i), 5) for i in range(n_modes)]
         
         
         # generate price, duration and other factors for the graph
@@ -73,6 +73,10 @@ class World:
         self.times = self._generate_properties(modes_time)
         self.dists = self._generate_properties(modes_dist)
         self._find_best_pos()
+        
+        # Undo seed setting/ restart randomness
+        t = 1000 * time.time() 
+        np.random.seed(int(t) % 2**32)
 
     def reset(self):
         self.path_ai, self.path_user = None, None
@@ -113,7 +117,7 @@ class World:
             ax.set_title("Current Path")
         
         G = nx.Graph()
-        color_dict = {0:'red',1:'green',2:'blue',3:'yellow',4:'black'}
+        color_dict = {0:'red',1:'green',2:'blue',3:'cyan',4:'black'}
         nx.draw_networkx_nodes(G, self.nodes_pos, nodelist=[str(i) for i in range(self.n_cities)],
                                node_color="tab:red", node_size=800, alpha=0.9)
         if self.path_ai is not None:
@@ -217,9 +221,11 @@ class UserModel:
     def __init__(self,simUser=True,**kwargs):
         self.role = "sim" if simUser else "user"
         
+#         new_seed = np.random.randint(10000)
+        
         # read in overwrites
         self.param_dist = kwargs.get('distribution', 
-                                     multivariate_normal())
+                                     multivariate_normal()) #seed=new_seed))
         self.user_params = kwargs.get('user_params', 
                                       self.param_dist.rvs(3))
         self.policy_fn = kwargs.get('policy_fn', None)
@@ -254,6 +260,9 @@ class UserModel:
         else:
             actions, action_prob = self.policy(all_paths,cost_vec)
         
+        if np.isnan(action_prob).any():
+            print(actions)
+            print(all_paths, cost_vec)
         sampled_ind = np.random.choice(range(len(actions)), 
                                           p=action_prob)
         
@@ -514,6 +523,12 @@ class Assistant:
 #             print(best_journey)
         return best_journey
     
+    def reset(self,**kwargs):
+        self.user_model = kwargs.get('user_model', UserModel())
+        self.strategy = kwargs.get('policy','global_min')
+        self.planner = None
+        self.env = None
+        self.observations = []
 #     def _update(self, obs):
 #         pass
     
