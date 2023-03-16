@@ -181,7 +181,7 @@ class World:
                 if "1" in self.bin_edges[i][j]:
                     G.add_edge(str(i), str(j))
         self.nodes_pos = nx.kamada_kawai_layout(G)
-        plt.show("off")
+#         plt.show("off")
         
 
     def _encrypt_route(self, start, end):
@@ -200,7 +200,8 @@ class World:
         self.bin_edges = [[dec2bin(edge, self.n_modes) for edge in row] for row in edges_dec]
 
         # pass information to graph
-        self.graph.add_nodes_from(range(1,self.n_cities+1))
+#         self.graph.add_nodes_from(range(1,self.n_cities+1))
+        self.graph.add_nodes_from(range(self.n_cities))
         for c,city in enumerate(self.bin_edges):
             mode_mask = ['1' in mode for mode in city]
             edge_ind = [i for i,x in enumerate(mode_mask) if x]
@@ -220,12 +221,10 @@ class World:
 class UserModel:
     def __init__(self,simUser=True,**kwargs):
         self.role = "sim" if simUser else "user"
-        
-#         new_seed = np.random.randint(10000)
-        
+                
         # read in overwrites
         self.param_dist = kwargs.get('distribution', 
-                                     multivariate_normal()) #seed=new_seed))
+                                     multivariate_normal())
         self.user_params = kwargs.get('user_params', 
                                       self.param_dist.rvs(3))
         self.policy_fn = kwargs.get('policy_fn', None)
@@ -249,9 +248,9 @@ class UserModel:
 
     def take_action(self,**kwargs):
         assert len(self.observations) > 0, "observe() needs to be called first"
+        is_test = kwargs.get("test_run",False)
         ai_advice, advice_costs = self.observations[-1]
-#         ai_advice = [r.get_itinerary() for r in last_ai]
-#         advice_costs = [self._calc_segment_cost(segment) for segment in ai_advice]
+
         # COULD DO: make Boltzmann ration as well
         all_paths, cost_vec = self._find_alternatives(ai_advice,advice_costs)
        
@@ -259,6 +258,9 @@ class UserModel:
             actions, action_prob = self.policy_fn(all_paths,self.user_params)
         else:
             actions, action_prob = self.policy(all_paths,cost_vec)
+            
+        if is_test:
+            return actions
         
         if np.isnan(action_prob).any():
             print(actions)
@@ -411,7 +413,7 @@ class UserModel:
                   
     def inference_engine(self,e):
         if self.inf_fn is not None:
-            approx_dist = self.inf_fn(e)
+            approx_dist = self.inf_fn(e,self.param_dist)
         else:
             # step 2: Use Laplace Approx for posterior
             # Debug idea: change init value every time
@@ -508,19 +510,12 @@ class Assistant:
             min_path = self.env.path_tuples[global_min]
             best_journey,_ = self.env.run_scenario(min_path)
             return best_journey
-#             prop_sum = []
-#             total_cost = [np.sum()]
-#             print(
-#             min_ind = np.argmin(np.sum(cost_vec,axis=0))
-#             min_path = self.env.path_tuples[min_ind]
-#             path, cost = 
-#             return self.env.run_scenario(min_path)
                 
         else:
             rand_ind = np.random.randint(0,len(self.env.path_tuples))
             random_path = self.env.path_tuples[rand_ind]
-            best_journey,_ = self.env.run_scenario(random_path)
-#             print(best_journey)
+            best_journey = self.env.pick_random_modes(random_path)
+
         return best_journey
     
     def reset(self,**kwargs):
@@ -595,6 +590,14 @@ class Env:
         
         return min_cost_journey, journey_cost
 #         return journey_dict
+    
+    def pick_random_modes(self,path):
+        journey_vec = []
+        for segment in path:
+            available_modes = self.modes_dict[segment]
+            random_mode = np.random.choice(available_modes)
+            journey_vec.append((*segment,random_mode))
+        return journey_vec
     
     def update(self,obs):
         self.world = copy.copy(obs)
