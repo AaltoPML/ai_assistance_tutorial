@@ -3,7 +3,8 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from scipy.stats import bernoulli, multivariate_normal
 from scipy.optimize import minimize
-import copy, time
+import copy, time, itertools
+from ba_mcts import BAMCTS
 
 # Utils
 def dec2bin(n, n_digs=None):
@@ -44,7 +45,7 @@ class Route:
         return (self.dist,self.price,self.time)
     
 
-# Main AI assistnece objects
+# Main AI assistance objects
 class World:
     def __init__(self, n_cities=10, n_modes=5, modes_prob=.6, 
                   modes_dist=None, modes_price=None, modes_time=None):
@@ -96,16 +97,31 @@ class World:
     def is_solved(self):
         return (self.path_ai == self.path_user) and (self.path_ai is not None)
     
+    def is_valid(self, path):
+        return self._is_valid(path)
+    
     def _is_valid(self, path):
         valid = True
         for x,y,m in path:
             if self.bin_edges[x][y][m] == "0":
                 valid = False
                 break
-        if not valid:
-            print("Invalid pathway!")
-        return valid
+        for i in range(len(path)-1):
+            if path[i][1]!=path[i+1][0]:
+                valid = False
+                break
+        if path[0][0]!=self.start or path[-1][1]!=self.destination:
+            valid = False
 
+        # if a cycle is not allowed in the path
+        n_visits = np.zeros((self.n_cities,))
+        for x,y,m in path[1:-1]:
+            n_visits[x] += 1
+        if np.sum(n_visits > 1):
+            valid = False
+            
+        return valid
+   
     def look_up_cost(self,segment):
         return [self.dists[segment], 
                 self.prices[segment],
@@ -171,18 +187,14 @@ class World:
                 font_weight="bold", font_size=20, node_color="tab:red", node_size=800, alpha=0.9)
         nx.draw_networkx_nodes(G, self.nodes_pos, nodelist=[str(self.start),str(self.destination)], node_color="purple")
         _ = ax.axis('off')
-        #plt.show()
 
     def _find_best_pos(self):
-#         plt.figure(figsize=(7,6))
         G = nx.Graph()
         for i in range(self.n_cities):
             for j in range(self.n_cities):
                 if "1" in self.bin_edges[i][j]:
                     G.add_edge(str(i), str(j))
         self.nodes_pos = nx.kamada_kawai_layout(G)
-#         plt.show("off")
-        
 
     def _encrypt_route(self, start, end):
         return str(start)+"#"+str(end)
@@ -200,7 +212,6 @@ class World:
         self.bin_edges = [[dec2bin(edge, self.n_modes) for edge in row] for row in edges_dec]
 
         # pass information to graph
-#         self.graph.add_nodes_from(range(1,self.n_cities+1))
         self.graph.add_nodes_from(range(self.n_cities))
         for c,city in enumerate(self.bin_edges):
             mode_mask = ['1' in mode for mode in city]
@@ -238,7 +249,7 @@ class UserModel:
             assert callable(self.inf_fn)
         
         
-        self.world_setup = None
+        self.world = None
         self.observations = []
             
         if self.role == 'sim':
@@ -249,10 +260,9 @@ class UserModel:
     def take_action(self,**kwargs):
         assert len(self.observations) > 0, "observe() needs to be called first"
         is_test = kwargs.get("test_run",False)
-        ai_advice, advice_costs = self.observations[-1]
 
         # COULD DO: make Boltzmann ration as well
-        all_paths, cost_vec = self._find_alternatives(ai_advice,advice_costs)
+        all_paths, cost_vec = self._find_alternatives()
        
         if self.policy_fn is not None:
             actions, action_prob = self.policy_fn(all_paths,self.user_params)
@@ -261,10 +271,7 @@ class UserModel:
             
         if is_test:
             return actions
-        
-        if np.isnan(action_prob).any():
-            print(actions)
-            print(all_paths, cost_vec)
+      
         sampled_ind = np.random.choice(range(len(actions)), 
                                           p=action_prob)
         
@@ -285,12 +292,12 @@ class UserModel:
         if isinstance(segment,Route):
             cost_vec = segment.get_costs()
         else:
-            cost_vec = np.array([self.world_setup['dists'][segment], 
-                                 self.world_setup['prices'][segment],
-                                 self.world_setup['times'][segment]])
+            cost_vec = self.world.look_up_cost(segment)
+
         return self.user_params.dot(cost_vec) 
     
-    def _find_alternatives(self,path,path_costs):
+    def _find_alternatives(self,*args,**kwargs):
+        path, path_costs = self.observations[-1]
         costly_ind = np.argmax(path_costs)
         new_path = copy.copy(path)
         new_costs = copy.copy(path_costs)
@@ -299,23 +306,30 @@ class UserModel:
         all_paths, cost_vec = [],[]
         # change mode of transport
         start, end, _ = path[costly_ind]
-        bin_modes = self.world_setup['edges'][start, end]
+        bin_modes = self.world.bin_edges[start][end]
         alt_modes = [i for i, val in enumerate(bin_modes) if val=='1']
         for mode_num in alt_modes:
             new_mode = (start,end,mode_num)
-#             if new_mode != path[costly_ind]:
             new_path[costly_ind] = new_mode
-            new_costs[costly_ind] = self._calc_segment_cost(new_mode)
-            all_paths.append(new_path)
-            cost_vec.append(np.sum(new_costs))
-            new_path = copy.copy(path)
-            new_costs = copy.copy(path_costs)
+            
+            if self.world._is_valid(new_path):
+                new_costs[costly_ind] = self._calc_segment_cost(new_mode)
+                all_paths.append(new_path)
+                cost_vec.append(np.sum(new_costs))
+                new_path = copy.copy(path)
+                new_costs = copy.copy(path_costs)
+            else:
+                new_path = copy.copy(path)
 
         # find alternative transfer routes
+        # prevent revisits
+        visited_loc = [c for c,_,_ in path]
         ## change transfer
-        alt_transfer1 = self.world_setup['edges'][start, :]
+        alt_transfer1 = self.world.bin_edges[start]
         txn_dict = dict()
         for mid_pt, bin_transfer1 in enumerate(alt_transfer1):
+            if (mid_pt in visited_loc) or (mid_pt == self.world.destination):
+                continue
             alt_tnx1 = [i for i, v in enumerate(bin_transfer1) if v=='1']
             for mode_num in alt_tnx1:
                 txn1 = (start,mid_pt,mode_num)
@@ -325,8 +339,8 @@ class UserModel:
                     txn_dict[txn1] = self._calc_segment_cost(txn1)
 
         for part1,cost1 in txn_dict.items():
-            _,txn_loc,_ = txn1
-            bin_tnx2 = self.world_setup['edges'][txn_loc, end]
+            _,txn_loc,_ = part1
+            bin_tnx2 = self.world.bin_edges[txn_loc][end]
             alt_tnx2 = [i for i, v in enumerate(bin_tnx2) if v=='1']
             for mode_num in alt_tnx2:
                 part2 = (txn_loc,end,mode_num)
@@ -337,16 +351,19 @@ class UserModel:
                 new_path.insert(costly_ind+1,part2)
                 new_costs.insert(costly_ind+1,cost2)
 
-                all_paths.append(new_path)
-                cost_vec.append(np.sum(new_costs))
-                new_path = copy.copy(path)
-                new_costs = copy.copy(path_costs)
+                if self.world._is_valid(new_path):
+                    all_paths.append(new_path)
+                    cost_vec.append(np.sum(new_costs))
+                    new_path = copy.copy(path)
+                    new_costs = copy.copy(path_costs)
+                else:
+                    new_path = copy.copy(path)
 
         ## skip
         if path[costly_ind] != path[-1]:
             _, new_end, _ = path[costly_ind+1]
             ## skip
-            bin_direct = self.world_setup['edges'][start, new_end]
+            bin_direct = self.world.bin_edges[start][new_end]
             alt_direct = [i for i, val in enumerate(bin_direct) if val=='1']
             for mode_num in alt_direct:
                 new_direct = (start,new_end,mode_num)
@@ -355,21 +372,20 @@ class UserModel:
                 del new_path[costly_ind+1]
                 del new_costs[costly_ind+1]
 
-                all_paths.append(new_path)
-                cost_vec.append(np.sum(new_costs))
-                new_path = copy.copy(path)
-                new_costs = copy.copy(path_costs)
+                if self.world._is_valid(new_path):
+                    all_paths.append(new_path)
+                    cost_vec.append(np.sum(new_costs))
+                    new_path = copy.copy(path)
+                    new_costs = copy.copy(path_costs)
+                else:
+                    new_path = copy.copy(path)
 
         return all_paths, cost_vec
     
     def observe(self,state):
         # If first time seeing the board
-        if self.world_setup is None:
-            self.world_setup = dict()
-            self.world_setup['edges'] = np.array(state.bin_edges)
-            self.world_setup['prices'] = state.prices
-            self.world_setup['times'] = state.times
-            self.world_setup['dists'] = state.dists
+        if self.world is None:
+            self.world = state
         if state.path_ai is not None:
             ai_advice = [r.get_itinerary() for r in state.path_ai]
             advice_costs = [self._calc_segment_cost(segment) for segment in ai_advice]
@@ -386,7 +402,6 @@ class UserModel:
     def update(self, obs,**kwargs):
         assert self.role=='sim', "Method only available to simulated users; method called on true user."
         
-#         if obs.path_ai != obs.path_user:
         if not obs.is_solved():
             # step 1: check what user changed
             ai_advice = [s.get_itinerary() for s in obs.path_ai]
@@ -395,20 +410,6 @@ class UserModel:
                 cost_vec = c.get_costs()
                 self.param_dist = self.inference_engine(cost_vec)
 
-                # step 2: Use Laplace Approx for posterior
-                # Debug idea: change init value every time
-#                 init_mean = self.param_dist.mean
-#                 optim = minimize(self._log_posterior, init_mean,
-#                                  args=(cost_vec,"L1"), method='BFGS')
-#                 if not optim.success:
-#                     print("Failed to minimize")
-#                 w_map = optim.x/np.sum(optim.x)
-#                 hessian = np.linalg.inv(optim.hess_inv)
-
-#                 print(w_map,np.any(hessian<0))
-#                 print(hessian)
-#                 self.param_dist = multivariate_normal(mean=w_map,
-#                                                       cov=hessian)
         self.user_params = self.param_dist.rvs(size=1)
                   
     def inference_engine(self,e):
@@ -420,10 +421,8 @@ class UserModel:
             init_mean = self.param_dist.mean
             optim = minimize(self._log_posterior, init_mean,
                              args=(e,"L1"), method='BFGS')
-#             while not optim.success:
+            
             if not optim.success:
-#                 print("Failed to minimize")
-#                 print(optim)
                 return multivariate_normal(mean=self.param_dist.mean,
                                               cov=self.param_dist.cov)
                 
@@ -445,23 +444,9 @@ class UserModel:
         if self.posterior_fn is not None:
             post_pr = self.posterior_fn(w,e)
         else:
-            
-#         w_mu = self.param_dist.mean
-#         w_cov = self.param_dist.cov
-#         log_prior = (w - w_mu).dot(np.linalg.inv(w_cov)).dot(w - w_mu)
-#         if not np.isclose(np.sum(w),1):
-#             w = w/np.sum(w)
             log_prior = self.param_dist.logpdf(w)
             log_likelihood = w.dot(e) 
             post_pr =  -1 * (log_prior + log_likelihood)
-        
-        if regularizer == "L1":
-            l1_reg = np.sum(np.abs(w))
-            return -1*(post_pr + 10) #np.log(l1_reg))
-#         elif regularizer == "L2":    # Optimization yields invalid Hessian for covar matrix
-#             l2_reg = np.sum(np.square(w))
-#             return -1*(log_prior + log_likelihood + l2_reg)
-        
             
         return post_pr
     
@@ -472,15 +457,9 @@ class crUser(UserModel):
         super().__init__(**kwargs)
 
 class Assistant:
-    # MLE infer user params
-    # plan assuming MLE
-    # delta-dirac
-    # analytical closed form posterior of the current user param estimate
-    # return param sample
     def __init__(self,**kwargs):
         self.user_model = kwargs.get('user_model', UserModel())
-        self.strategy = kwargs.get('policy','global_min')
-        self.planner = None
+        self.strategy = kwargs.get('policy',None)
         self.env = None
         self.observations = []
     
@@ -490,7 +469,6 @@ class Assistant:
         if obs.path_user is not None:
             self.user_model.update(obs)
             self.env.update(obs)
-#             self._update(obs)
             self.observations.append(obs)
     
     def take_action(self):
@@ -499,34 +477,49 @@ class Assistant:
     
     def policy(self):
         if self.strategy is None:
-            best_journey = self.planner.recommend(self.env, self.user_model)
+            if self.env.world.path_user:
+                path_user = [(s.start, s.end, s.mode) for s in self.env.world.path_user]
+            else:
+                path_user = None
+            current_state = self.env.find_state(path_user)
+            self.env.action_space = []
+            for path in self.env.path_tuples:
+                itinerary, _ = self.env.run_scenario(path)
+                it_state = self.env.find_state(itinerary)
+                self.env.action_space.append(it_state)
+            
+            # call solver
+            planner = BAMCTS(initial_obs=current_state, env=self.env, K=2**0.5)
+            planner.plan(n_sim=500, progress_bar=False)
+            best_action = planner.find_best_action()
+            best_journey = self.env.states[best_action]
+            return best_journey
+        
         elif self.strategy=="global_min": 
             global_cost = []
             for path in self.env.path_tuples:
                 itinerary, cost_vec = self.env.run_scenario(path)
                 global_cost.append(np.sum(cost_vec))
-#             scenes = [self.env.run_scenario(p) for p in self.env.path_tuples]
             global_min = np.argmin(global_cost)
             min_path = self.env.path_tuples[global_min]
             best_journey,_ = self.env.run_scenario(min_path)
             return best_journey
                 
-        else:
+        elif self.strategy=="random":
             rand_ind = np.random.randint(0,len(self.env.path_tuples))
             random_path = self.env.path_tuples[rand_ind]
             best_journey = self.env.pick_random_modes(random_path)
+            return best_journey
+#             print("random choices were: ",random_ind," and ", best_journey)
 
-        return best_journey
+        
     
     def reset(self,**kwargs):
         self.user_model = kwargs.get('user_model', UserModel())
         self.strategy = kwargs.get('policy','global_min')
         self.planner = None
         self.env = None
-        self.observations = []
-#     def _update(self, obs):
-#         pass
-    
+        self.observations = [] 
     
 class Env:
     def __init__(self,world_state,user_model):
@@ -536,13 +529,14 @@ class Env:
         self.destination = world_state.destination
         self.bin_edges = np.array(world_state.bin_edges)
         self._find_valid_paths()
-        # place holder:
-#         self._find_path_properties()
+        self._find_all_states()
+        self.action_space = len(self.states)
 
         # Init simulated user
         self.user_model = user_model
         self.user_model.observe(self.world)
 
+        
     def _find_valid_paths(self):
         self.all_paths = all_paths = list(nx.all_simple_paths(self.world.graph, 
                                                   source=self.start, 
@@ -564,32 +558,35 @@ class Env:
                     self.modes_dict[(c_begin,c_end)] = mode_ind
             self.path_tuples.append(cur_path)
                       
-#     def _find_path_properties(self):
-        
-             
-#         return properties_dict
-#     def _find_all_actions(self):
-#         self.all_actions = []
-#         for route in self.path_tuples:
-#             route_options = []
-#             for segment in route:
-#                 modes = self.modes_dict[segment]
-#                 for mode in modes:
-#                     route_options.append()
+    def _find_all_states(self):
+        # all paths considering various modes
+        self.states = [None]
+        for path in self.path_tuples:
+            segments_variants = []
+            for seg in path:
+                segments = [(seg[0], seg[1], mode) for mode in self.modes_dict[(seg[0],seg[1])]]
+                segments_variants.append(segments)
+            #print(segments_variants)
+            for S_t in itertools.product(*segments_variants):
+                self.states.append(tuple(S_t))
+        self.state_hashmap = {k: v for v, k in enumerate(self.states)}
+
+    
+    def find_state(self, path):
+        if type(path) == list:
+            path = tuple(path)
+        return self.state_hashmap.get(path)
 
     def run_scenario(self,path):
-#         journey_dict = dict()
         min_cost_journey, journey_cost = [], []
         for segment in path:
             available_modes = self.modes_dict[segment]
             mode_costs = [self.user_model._calc_segment_cost((*segment,mode)) for mode in available_modes]
             min_ind = np.argmin(np.array(mode_costs))
-#             journey_dict[(*segment,available_modes[min_ind])] = np.min(np.array(mode_costs))
             min_cost_journey.append((*segment,available_modes[min_ind]))
             journey_cost.append(np.min(np.array(mode_costs)))
         
         return min_cost_journey, journey_cost
-#         return journey_dict
     
     def pick_random_modes(self,path):
         journey_vec = []
@@ -601,18 +598,32 @@ class Env:
     
     def update(self,obs):
         self.world = copy.copy(obs)
-#         self.world.step()
-#         user_action = obs.path_user
-        
-#         self.step()
     
-    def step(self, action):
-        self.world.step(**action) # dict containing user_action or ai_action  
+    def step(self, ai_action_idx):
+        ai_action = self.states[ai_action_idx]
+        self.world.step(ai_action=ai_action)
+        self.user_model.observe(self.world)
+        user_action = self.user_model.take_action()
+        self.world.is_valid(user_action)
+        self.world.step(user_action=user_action)
+        #print("UserModel.action: ", user_action)
+        new_state = self.find_state(user_action)
+#         if new_state is None:
+#             print("user action: ", user_action)
+#             print("ai action: ", ai_action)
+#             exit()
+        ##############################################
+        if ai_action_idx == 0:
+            reward = -100000
+        else:
+            reward = 0
+            for segment in user_action:
+                reward -= self.user_model._calc_segment_cost(segment)
+        ##############################################
+        done = self.world.is_solved()
+        return new_state, reward, done
         
-
-#     def getReward(self):
-#         # only needed for terminal states
-#         raise NotImplementedError()
-
-#     def __eq__(self, other):
-#         raise NotImplementedError()
+    def reset(self):
+        # reset world and sample new user model
+        self.world.reset()
+        self.user_model.sample()
