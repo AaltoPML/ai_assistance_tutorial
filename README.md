@@ -12,15 +12,14 @@ Due to slight differences in how jupyter notebooks are rendered in Google Collab
 2. Make sure you're signed into your Google account and open [Google Collab](https://colab.research.google.com/)
 3. Navigate to the `Upload` tab > click `choose file` > go under the "Google Collab" directory > select the `AI_assistance_Tutorial.ipynb` file
 4. Run the first cell in the notebook (it might take a bit of time for the Google backend to activate your virtual machine)
-5. When the cell successfully runs, click `choose file` again and select the following three files for upload:
+5. When the cell successfully runs, click `choose file` again and select the following two files for upload:
     - `tutorialObjs.py`
-    - `ba_mcts.py`
     - `ai-assistance-overview.png`
 6. Run the subsequent import cell to verify you don't have any errors.
 
 ## Instructions for local environment
 ### Requirements
-- Python 3 (we've testing on 3.8+)
+- Python 3 (we've tested on 3.8 and 3.9)
 - `jupyter notebook`
 - packages in `requirements.txt` 
 
