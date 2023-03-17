@@ -115,11 +115,7 @@ class World:
         if self.path_user is not None:
             nx.draw_networkx_edges(G, self.nodes_pos, 
                                    edgelist=[(str(route.start), str(route.end)) for route in self.path_user],
-<<<<<<< Updated upstream
-                                   edge_color=[color_dict[route.mode] for route in self.path_ai],
-=======
                                    edge_color=[color_dict[route.mode] for route in self.path_user],
->>>>>>> Stashed changes
                                    width=6,alpha=0.4) #edge_color='green'
             nx.draw_networkx_edge_labels(G, self.nodes_pos, 
                                          edge_labels={(str(route.start), str(route.end)):"mode: "+str(route.mode) for route in self.path_user},
@@ -233,15 +229,20 @@ class UserModel:
 
         # COULD DO: make Boltzmann ration as well
         all_paths, cost_vec = self._find_alternatives()
+        
+        
        
         if self.policy_fn is not None:
             actions, action_prob = self.policy_fn(all_paths,self.user_params)
         else:
-            actions, action_prob = self.policy(all_paths,cost_vec)
+            rescaled_cost = exp_normalize(np.array(cost_vec))
+            actions, action_prob = self.policy(all_paths,rescaled_cost)
             
         if is_test:
             return actions
-      
+        
+        if np.sum(action_prob)!=1:
+            action_prob = action_prob/np.sum(action_prob)
         sampled_ind = np.random.choice(range(len(actions)), 
                                           p=action_prob)
         
@@ -249,7 +250,7 @@ class UserModel:
         
     def policy(self,all_actions,cost_vec):
         action_cost = np.array(cost_vec)
-        action_probs = np.exp(action_cost)/np.sum(np.exp(action_cost))
+        action_probs = np.exp(-action_cost)/np.sum(np.exp(-action_cost))
 
         # COULD DO: In case we need more stochasticity
         # make_error = bernoulli(self.error)
@@ -784,6 +785,12 @@ def dec2bin(n, n_digs=None):
 
 def bin2dec(n):
     return int(n,2)
+
+def exp_normalize(cost_list):
+    x = np.array(cost_list)
+    b = x.max()
+    y = np.exp(x - b)
+    return y / y.sum()
 
 def run_task(policy=None):
     task = World()    
