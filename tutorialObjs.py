@@ -115,7 +115,11 @@ class World:
         if self.path_user is not None:
             nx.draw_networkx_edges(G, self.nodes_pos, 
                                    edgelist=[(str(route.start), str(route.end)) for route in self.path_user],
+<<<<<<< Updated upstream
                                    edge_color=[color_dict[route.mode] for route in self.path_ai],
+=======
+                                   edge_color=[color_dict[route.mode] for route in self.path_user],
+>>>>>>> Stashed changes
                                    width=6,alpha=0.4) #edge_color='green'
             nx.draw_networkx_edge_labels(G, self.nodes_pos, 
                                          edge_labels={(str(route.start), str(route.end)):"mode: "+str(route.mode) for route in self.path_user},
