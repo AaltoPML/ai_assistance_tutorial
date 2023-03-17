@@ -4,46 +4,12 @@ import matplotlib.pyplot as plt
 from scipy.stats import bernoulli, multivariate_normal
 from scipy.optimize import minimize
 import copy, time, itertools
-from ba_mcts import BAMCTS
+# from ba_mcts import BAMCTS
 
-# Utils
-def dec2bin(n, n_digs=None):
-    num = bin(n).replace("0b","")
-    if n_digs:
-        num = "0"*(n_digs-len(num))+num
-    return num
-    
-
-def bin2dec(n):
-    return int(n,2)
-
-# Helper objects
-class Route:
-    def __init__(self, start, end, mode=None,
-                    price=None, time=None, dist=None):
-        self.start = start
-        self.end = end
-        self.mode = mode
-        self.price = price
-        self.time = time
-        self.dist = dist
-    
-    def __eq__(self, other):
-        if (isinstance(other, Route)):
-            return vars(self) == vars(other)
-        return False
-    
-    def __repr__(self):
-         return str(vars(self))
-    def __str__(self):
-         return str(self.get_itinerary())
-    
-    def get_itinerary(self):
-        return (self.start,self.end,self.mode)
-    
-    def get_costs(self):
-        return (self.dist,self.price,self.time)
-    
+import numpy as np
+import copy
+from tqdm import tqdm
+import pickle    
 
 # Main AI assistance objects
 class World:
@@ -451,10 +417,10 @@ class UserModel:
         return post_pr
     
 
-class crUser(UserModel):
-    # implement user cross over
-    def __init__(self,simUser=False,**kwargs):
-        super().__init__(**kwargs)
+# class crUser(UserModel):
+#     # implement user cross over
+#     def __init__(self,simUser=False,**kwargs):
+#         super().__init__(**kwargs)
 
 class Assistant:
     def __init__(self,**kwargs):
@@ -510,8 +476,6 @@ class Assistant:
             random_path = self.env.path_tuples[rand_ind]
             best_journey = self.env.pick_random_modes(random_path)
             return best_journey
-#             print("random choices were: ",random_ind," and ", best_journey)
-
         
     
     def reset(self,**kwargs):
@@ -563,10 +527,11 @@ class Env:
         self.states = [None]
         for path in self.path_tuples:
             segments_variants = []
+            
             for seg in path:
                 segments = [(seg[0], seg[1], mode) for mode in self.modes_dict[(seg[0],seg[1])]]
                 segments_variants.append(segments)
-            #print(segments_variants)
+            
             for S_t in itertools.product(*segments_variants):
                 self.states.append(tuple(S_t))
         self.state_hashmap = {k: v for v, k in enumerate(self.states)}
@@ -606,12 +571,7 @@ class Env:
         user_action = self.user_model.take_action()
         self.world.is_valid(user_action)
         self.world.step(user_action=user_action)
-        #print("UserModel.action: ", user_action)
         new_state = self.find_state(user_action)
-#         if new_state is None:
-#             print("user action: ", user_action)
-#             print("ai action: ", ai_action)
-#             exit()
         ##############################################
         if ai_action_idx == 0:
             reward = -100000
@@ -627,3 +587,225 @@ class Env:
         # reset world and sample new user model
         self.world.reset()
         self.user_model.sample()
+
+# Helper objects
+class Route:
+    def __init__(self, start, end, mode=None,
+                    price=None, time=None, dist=None):
+        self.start = start
+        self.end = end
+        self.mode = mode
+        self.price = price
+        self.time = time
+        self.dist = dist
+    
+    def __eq__(self, other):
+        if (isinstance(other, Route)):
+            return vars(self) == vars(other)
+        return False
+    
+    def __repr__(self):
+         return str(vars(self))
+    def __str__(self):
+         return str(self.get_itinerary())
+    
+    def get_itinerary(self):
+        return (self.start,self.end,self.mode)
+    
+    def get_costs(self):
+        return (self.dist,self.price,self.time)        
+
+class StateNode:
+    def __init__(self, state=None, parent=None, is_root=False, is_final=False):
+        self.n_visits = 0
+        self.reward = 0
+        self.state = state
+        self.parent = parent
+        self.is_final = is_final
+        self.is_root = is_root
+        self.children = {}
+
+
+    def add_children(self, action_node):
+        self.children[action_node.action] = action_node
+
+
+    def next_action_node(self, action):
+        if action not in self.children.keys():
+            new_action_node = ActionNode(action, parent=self)
+            self.add_children(new_action_node)
+        else:
+            new_action_node = self.children[action]
+        return new_action_node
+
+class ActionNode:
+    def __init__(self, action, parent=None):
+        self.n_visits = 0
+        self.cumulative_reward = 0
+        self.action = action
+        self.parent = parent
+        self.children = {}
+
+
+    def add_children(self, state_node):
+        self.children[state_node.state] = state_node
+
+
+class BAMCTS:
+    def __init__(self, initial_obs, env, K, action_space=None):
+        # Maybe it's better to initialize the node reward by the GP_AI
+        self.env = env
+        self.K = K
+        self.root = StateNode(state=initial_obs, is_root=True)
+
+
+    def plan(self, n_sim, progress_bar=False):
+        if progress_bar:
+            iterations = tqdm(range(n_sim))
+        else:
+            iterations = range(n_sim)
+
+        for _ in iterations:
+            self.grow_tree()
+
+
+    def grow_tree(self):
+        state_node = self.root
+        self.env.reset() # resample user_model
+        internal_env = copy.copy(self.env)
+
+        while (not state_node.is_final) and state_node.n_visits > 1:
+
+            a = self.select_action(state_node)
+            new_action_node = state_node.next_action_node(a)
+
+            new_state_node, r = self.get_outcome(internal_env, new_action_node)
+            new_state_node = self.update_state_node(new_state_node, new_action_node)
+
+            new_state_node.reward = r
+            new_action_node.reward = r
+
+            state_node = new_state_node
+
+        state_node.n_visits += 1
+        cumulative_reward = self.evaluate(internal_env)
+
+        while not state_node.is_root:
+            action_node = state_node.parent
+            cumulative_reward += action_node.reward
+            action_node.cumulative_reward += cumulative_reward
+            action_node.n_visits += 1
+            state_node = action_node.parent
+            state_node.n_visits += 1
+
+
+    def select_action(self, state_node):
+        if state_node.n_visits <= 2:
+            state_node.children = {a: ActionNode(a, parent=state_node) for a in self.env.action_space}
+
+        def scoring(k):
+            if state_node.children[k].n_visits > 0:
+                return state_node.children[k].cumulative_reward/state_node.children[k].n_visits + \
+                    self.K*np.sqrt(np.log(state_node.n_visits)/state_node.children[k].n_visits)
+            else:
+                return np.inf
+
+        a = max(state_node.children, key=scoring)
+
+        return a
+
+
+    def get_outcome(self, env, action_node):
+        new_state_index, r, done = env.step(action_node.action)        
+        return StateNode(state=new_state_index, parent=action_node, is_final=done), r
+
+
+    def update_state_node(self, state_node, action_node):
+        if state_node.state not in action_node.children.keys():
+            state_node.parent = action_node
+            action_node.add_children(state_node)
+        else:
+            state_node = action_node.children[state_node.state]
+
+        return state_node
+
+
+    def evaluate(self, env): # this function should be refined. it cannot go until the end in our case
+        """
+        Evaluates a state node by playing to a terminal node using the rollot policy
+        """
+        max_iter = 10
+        R = 0
+        done = False
+        iter = 0
+        while ((not done) and (iter < max_iter)):
+            iter += 1
+            a = np.random.choice(env.action_space)
+            s, r, done = env.step(a)
+            R += r
+
+        return R
+
+
+    def find_best_action(self):
+        """
+        At the end of the simulations returns the most visited action
+        """
+        actions = [node.action for node in self.root.children.values() if node.n_visits]
+        number_of_visits_children = [node.n_visits for node in self.root.children.values() if node.n_visits]
+        value_children = [node.cumulative_reward for node in self.root.children.values() if node.n_visits]
+        mean_value_children = [node.cumulative_reward/node.n_visits for node in self.root.children.values() if node.n_visits]
+        index_best_action = np.argmax(mean_value_children)
+        best_action = actions[index_best_action]
+        """
+        indx = np.argpartition(mean_value_children, -6)[-6:]
+
+        print("Best:", index_best_action, mean_value_children[index_best_action])
+        print("Best actions:", indx)
+        print("Values:", [value_children[i] for i in indx])
+        print("mean values:", [mean_value_children[i] for i in indx])
+        print("Visits:", [number_of_visits_children[i] for i in indx])
+        print("Actions:", [actions[i] for i in indx])
+        """
+
+        return best_action
+    
+# Utils
+def dec2bin(n, n_digs=None):
+    num = bin(n).replace("0b","")
+    if n_digs:
+        num = "0"*(n_digs-len(num))+num
+    return num
+    
+
+def bin2dec(n):
+    return int(n,2)
+
+def run_task(policy=None):
+    task = World()    
+    anonUser = anonUser = UserModel(simUser=False)
+    myAssistant = Assistant(**dict(policy=policy))
+    
+    
+    interaction_count = 0
+    actions = dict(ai=[],user=[])
+    while not task.is_solved():
+        myAssistant.observe(task)
+        anonUser.observe(task)
+
+        # Step 1) The assistant gives a recommendation
+        ai_a = myAssistant.take_action()
+        task.step(ai_action=ai_a)
+        actions['ai'].append(str(ai_a))
+        
+        # Step 2) The user observes the action taken by the AI
+        anonUser.observe(task)
+        # Step 3) The user proposes counter journey or agrees to the recommendation
+        u_a = anonUser.take_action()
+        task.step(user_action=u_a)
+        actions['user'].append(str(u_a))
+
+        interaction_count += 1
+    
+    myAssistant.reset()
+    return interaction_count
