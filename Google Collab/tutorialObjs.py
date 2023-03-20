@@ -391,7 +391,7 @@ class UserModel:
             # Debug idea: change init value every time
             init_mean = self.param_dist.mean
             optim = minimize(self._log_posterior, init_mean,
-                             args=(e,"L1"), method='BFGS')
+                             args=(e,), method='BFGS')
             
             if not optim.success:
                 return multivariate_normal(mean=self.param_dist.mean,
