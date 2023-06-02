@@ -14,12 +14,28 @@ solutions to learn from. Instead, most problems depend on the goals and
 preferences of humans - the users - who are solving them. As a result, we need
 approaches that explicitly consider the user. We, the [multi-agent modeling
 team of FCAI](https://fcai.fi/fcai-teams#6), do exactly that by developing
-techniques and methods that assist users in their tasks.
+techniques and methods that assist users in their tasks:
+
+![AI-assistance diagram](figures/ai-assistance.png)
 
 Here you can find a sample of our work and a tutorial on creating
 AI-assistants.
 
-![AI-assistance diagram](figures/ai-assistance.png)
+## AI assistants for designers
+
+This paper presents the general AI-assisted Design framework. Based on the
+recent rise in the use of AI in design practice, and on gaps that remain in
+current assistance systems for design, it argues for a new assistance paradigm:
+AI-assisted Design. We focus particularly on the experience of the designer,
+explaining why designer autonomy, as well as control over the AI assistant, is
+important for ownership and effectiveness. We explain the general outlines of
+the AI-assisted design framework and go in depth on some of the more novel
+aspect, including the need for user modelling and how one can ensure designer
+control.
+
+![Diagram for learning differentiable surrogates](figures/AI_assisted_design_diagram_technical.pdf)
+
+De Peuter, S., Oulasvirta, A., & Kaski, S. (2023). Toward AI assistants that let designers design. AI Magazine, 44(1), 85-96.
 
 ## Differential user models
 
@@ -34,7 +50,21 @@ models in modern machine learning with online computational cost.
 
 ![Diagram for learning differentiable surrogates](figures/differential-user-models.png)
 
-Alex Hämäläinen, Mustafa Mert Çelikok, and Samuel Kaski. Differentiable user models. The 39th Conference on Uncertainty in Artificial Intelligence, 2023. Accepted for publication.
+Alex Hämäläinen, Mustafa Mert Çelikok, and Samuel Kaski. Differentiable user models. The 39th Conference on Uncertainty in Artificial Intelligence, 2023.
+
+## Zero-shot assistance
+
+This paper presents a general-purpose instance of the AI-assisted design
+framework. We formulate an instance in which an assistant helps an agent (f.ex.
+a human) solve a decision problem through advice. We focus particularly on the
+negative effect of biases within the agent on the effectiveness of advice, and
+show that modelling biases can help mitigate these effects. Finally, we
+introduce an MCTS-based planning algorithm for finding the assistant’s optimal
+advice policy.
+
+![Diagram for learning differentiable surrogates](figures/AI_assisted_design_slide_diagram.png)
+
+De Peuter, S., & Kaski, S. (2022). Zero-Shot Assistance in Sequential Decision Problems.
 
 # `Jupyter notebook` setup Instructions
 
