@@ -33,7 +33,7 @@ the AI-assisted design framework and go in depth on some of the more novel
 aspect, including the need for user modelling and how one can ensure designer
 control.
 
-![Diagram for learning differentiable surrogates](figures/AI_assisted_design_diagram_technical.pdf)
+![Diagram for learning differentiable surrogates](figures/ai-assisted-design-diagram-technical.png)
 
 De Peuter, S., Oulasvirta, A., & Kaski, S. (2023). Toward AI assistants that let designers design. AI Magazine, 44(1), 85-96.
 
