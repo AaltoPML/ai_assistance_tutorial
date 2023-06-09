@@ -33,7 +33,7 @@ the AI-assisted design framework and go in depth on some of the more novel
 aspect, including the need for user modelling and how one can ensure designer
 control.
 
-![Diagram for learning differentiable surrogates](figures/ai-assisted-design-diagram-technical.png)
+![Diagram for AI assisted design](figures/AI_assisted_design_slide_diagram.png)
 
 De Peuter, S., Oulasvirta, A., & Kaski, S. (2023). Toward AI assistants that let designers design. AI Magazine, 44(1), 85-96.
 
@@ -62,7 +62,7 @@ show that modelling biases can help mitigate these effects. Finally, we
 introduce an MCTS-based planning algorithm for finding the assistant’s optimal
 advice policy.
 
-![Diagram for learning differentiable surrogates](figures/AI_assisted_design_slide_diagram.png)
+![Diagram for zero-shot assistance](figures/ai-assisted-design-diagram-technical.png)
 
 De Peuter, S., & Kaski, S. (2022). Zero-Shot Assistance in Sequential Decision Problems.
 
