@@ -66,6 +66,23 @@ advice policy.
 
 De Peuter, S., & Kaski, S. (2022). Zero-Shot Assistance in Sequential Decision Problems.
 
+## Cooperative optimization
+
+The paper describes a cooperative Bayesian Optimization problem where two
+agents work together to optimize black-box functions of two variables. This
+approach is motivated by collaboration between humans and AI, where an
+AI-assistant helps a human user solve a problem through collaborative
+optimization. The solution involves strategic planning of queries using Bayes
+Adaptive Monte Carlo planning and a user model that accounts for conservative
+belief updates and exploratory sampling of points to query. The paper presents
+a promising approach to cooperative optimization that has practical
+applications in human-AI teamwork.
+
+![Diagram for zero-shot assistance](figures/coop-bayes-opt.png)
+
+Ali Khoshvishkaie, Petrus Mikkola, Pierre-Alexandre Murena, Samuel Kaski.
+Cooperative Bayesian optimization for imperfect agents. ECML-PKDD 2023
+
 # `Jupyter notebook` setup Instructions
 
 We recommend either:
